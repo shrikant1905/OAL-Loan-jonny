@@ -1,0 +1,550 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { DollarSign, CheckCircle2, ShieldCheck, AlertCircle, Clock, Calendar, Check, X, Lock, Eye, Download } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { StatusBadge } from '../common/StatusBadge';
+import { VerifyBadge } from '../common/VerifyBadge';
+
+export const OfferComparison = ({ applicationId, offers = [] }) => {
+  const { currentRole, currentUser, acceptOffer, submitOffer, addToast } = useApp();
+  const [selectedOfferForAccept, setSelectedOfferForAccept] = useState(null);
+  const [selectedPortfolioOffer, setSelectedPortfolioOffer] = useState(null);
+  const [showNewOfferModal, setShowNewOfferModal] = useState(false);
+
+  // New offer form state for Lender
+  const [newOfferData, setNewOfferData] = useState({
+    amount: 450000,
+    interestRate: 7.95,
+    termMonths: 60,
+    monthlyPayment: 9120,
+    originationFeePercent: 1.5,
+    prepaymentPenalty: 'None after 12 months',
+    conditionsText: 'First-position UCC lien on equipment; quarterly financial disclosure.'
+  });
+
+  const appOffers = offers.filter(o => {
+    if (applicationId && o.applicationId !== applicationId) return false;
+    if (currentRole === 'borrower' || currentRole === 'BORROWER') {
+      return o.sharedWithBorrower === true || o.status === 'ACCEPTED';
+    }
+    if (currentRole === 'lender' || currentRole === 'LENDER') {
+      // FIX 2: Strict Competitor Confidentiality — Lender sees ONLY their own proprietary offers
+      const myId = currentUser?.id || 'usr_lender_01';
+      return o.lenderId === myId;
+    }
+    return true;
+  });
+  const hasAcceptedOffer = appOffers.some(o => o.status === 'ACCEPTED');
+
+  const handleConfirmAccept = () => {
+    if (!selectedOfferForAccept) return;
+    acceptOffer(selectedOfferForAccept.id);
+    setSelectedOfferForAccept(null);
+
+    // Fire confetti celebration
+    try {
+      confetti({
+        particleCount: 120,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    } catch (e) {
+      // safe fallback
+    }
+  };
+
+  const handleLenderSubmitOffer = (e) => {
+    e.preventDefault();
+    submitOffer({
+      applicationId,
+      amount: newOfferData.amount,
+      interestRate: newOfferData.interestRate,
+      termMonths: newOfferData.termMonths,
+      monthlyPayment: newOfferData.monthlyPayment,
+      originationFeePercent: newOfferData.originationFeePercent,
+      prepaymentPenalty: newOfferData.prepaymentPenalty,
+      requiredConditions: [newOfferData.conditionsText]
+    });
+    setShowNewOfferModal(false);
+  };
+
+  const handleDownloadTermSheet = (offer) => {
+    if (!offer) return;
+    const content = `================================================================================
+OAL NETWORK COMMERCIAL TERM SHEET DOSSIER
+================================================================================
+Offer Reference   : ${offer.id}
+Application ID    : ${offer.applicationId}
+Lender Partner    : ${offer.lenderAlias}
+Status            : ${offer.status}
+Issued Date       : ${new Date().toLocaleDateString()}
+================================================================================
+COMMERCIAL FINANCIAL TERMS:
+Principal Amount  : $${offer.amount.toLocaleString()}
+Interest Rate     : ${offer.interestRate}% Fixed APR
+Term Duration     : ${offer.termMonths} Months
+Monthly Payment   : $${offer.monthlyPayment.toLocaleString()} / month
+Origination Fee   : ${offer.originationFeePercent || 2}% ($${Math.round(offer.amount * (offer.originationFeePercent || 2) / 100).toLocaleString()})
+Closing Costs Est : $3,500.00
+Prepayment Policy : ${offer.prepaymentPenalty || 'None after 12 months'}
+================================================================================
+REQUIRED CONDITIONS PRECEDENT:
+${(offer.requiredConditions || ['First-position UCC lien on corporate equipment', 'Quarterly revenue disclosure covenant']).map((c, i) => `${i + 1}. ${c}`).join('\n')}
+================================================================================
+CONFIDENTIAL - OAL FINANCIAL NETWORK LENDER EXCHANGE
+`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `termsheet_${offer.id.toLowerCase()}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (addToast) {
+      addToast('Term Sheet Downloaded', `Downloaded official terms for ${offer.id}.`, 'success');
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+      {/* Header */}
+      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-heading font-bold text-slate-900 flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-blue-600" />
+              Lender Offers & Terms Comparison
+            </h3>
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              {appOffers.length} {appOffers.length === 1 ? 'Offer' : 'Offers'} Received
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Compare term durations, rates, monthly debt service, and covenant requirements side-by-side.
+          </p>
+        </div>
+
+        {/* Rep Read-Only notice or Lender create button */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {currentRole === 'rep' && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-semibold w-full sm:w-auto">
+              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>READ-ONLY: Representative Mediation View</span>
+            </div>
+          )}
+
+          {currentRole === 'lender' && (
+            <button
+              onClick={() => setShowNewOfferModal(true)}
+              className="w-full sm:w-auto justify-center px-4 py-2 bg-[#0070C0] hover:bg-[#005a9e] active:bg-[#002060] text-white rounded-xl text-xs font-bold shadow-md shadow-[#0070C0]/25 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <DollarSign className="w-4 h-4" />
+              <span>Draft & Submit Offer</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Offers Cards / Comparison Grid */}
+      {appOffers.length === 0 ? (
+        <div className="p-12 text-center text-slate-500">
+          <Clock className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <h4 className="text-sm font-bold text-slate-700">
+            {currentRole === 'lender'
+              ? 'No Active Term Sheets Issued by Your Fund'
+              : 'No Offers Available for Review Yet'}
+          </h4>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            {currentRole === 'lender'
+              ? 'You have not submitted an underwriting proposal for this application. Click "Draft & Submit Offer" above to issue your terms.'
+              : 'Participating lenders and your assigned representative are reviewing credit files. Eligible offers will appear here once shared.'}
+          </p>
+        </div>
+      ) : (
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {appOffers.map((offer) => {
+            const isAccepted = offer.status === 'ACCEPTED';
+            const isPending = offer.status === 'PENDING_BORROWER_REVIEW';
+
+            return (
+              <div
+                key={offer.id}
+                className={`rounded-2xl border transition-all flex flex-col justify-between ${
+                  isAccepted
+                    ? 'bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-500/20 shadow-md'
+                    : 'bg-white border-slate-200 hover:border-slate-300 shadow-xs'
+                }`}
+              >
+                {/* Top Banner */}
+                <div className="p-5 border-b border-slate-100/90">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <span className="text-[11px] font-bold text-slate-500 tracking-wider">
+                      {offer.id}
+                    </span>
+                    <StatusBadge status={offer.status} />
+                  </div>
+
+                  <div className="text-xs font-bold text-slate-900 truncate">
+                    {/* Anonymized alias to preserve privacy */}
+                    {offer.lenderAlias || 'Institutional Commercial Fund'}
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="text-2xl font-extrabold text-slate-950 tracking-tight">
+                      ${offer.amount.toLocaleString()}
+                    </div>
+                    <div className="text-xs font-semibold text-blue-600 mt-0.5">
+                      {offer.interestRate}% Fixed APR • {offer.termMonths} Months
+                    </div>
+                  </div>
+                </div>
+
+                {/* Term Matrix */}
+                <div className="p-5 space-y-3 flex-1 text-xs text-slate-700">
+                  <div className="flex flex-wrap items-center justify-between gap-1 py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Monthly Payment:</span>
+                    <span className="font-bold text-slate-900">${offer.monthlyPayment.toLocaleString()} / mo</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-1 py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Origination Fee:</span>
+                    <span className="font-semibold">{offer.originationFeePercent}% (${Math.round(offer.amount * (offer.originationFeePercent / 100)).toLocaleString()})</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-1 py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Closing Costs Est.:</span>
+                    <span className="font-semibold">${offer.closingCosts?.toLocaleString() || 'N/A'}</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-1 py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Prepayment Policy:</span>
+                    <span className="font-medium text-slate-800 text-left sm:text-right max-w-[160px] truncate" title={offer.prepaymentPenalty}>
+                      {offer.prepaymentPenalty}
+                    </span>
+                  </div>
+
+                  <div className="pt-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                      Closing Conditions:
+                    </span>
+                    <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
+                      {offer.requiredConditions?.map((cond, i) => (
+                        <li key={i} className="line-clamp-2">{cond}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Card Action */}
+                <div className="p-5 pt-2 border-t border-slate-100/90 bg-slate-50/50 rounded-b-2xl">
+                  {isAccepted ? (
+                    <div className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold text-center flex items-center justify-center gap-1.5 shadow-sm">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Offer Accepted & Locked</span>
+                    </div>
+                  ) : currentRole === 'borrower' ? (
+                    <button
+                      onClick={() => setSelectedOfferForAccept(offer)}
+                      disabled={hasAcceptedOffer}
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                        hasAcceptedOffer
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'bg-[#0070C0] hover:bg-[#005a9e] active:bg-[#002060] text-white shadow-[#0070C0]/25'
+                      }`}
+                    >
+                      {hasAcceptedOffer ? 'Another Offer Accepted' : 'Accept This Offer'}
+                    </button>
+                  ) : currentRole === 'rep' ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortfolioOffer(offer)}
+                      className="w-full py-2.5 text-center text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Inspect Term Sheet</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortfolioOffer(offer)}
+                      className="w-full py-2.5 text-center text-xs font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Lender Portfolio Offer</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Accept Offer Confirmation Modal */}
+      {selectedOfferForAccept && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-slate-900">
+              Confirm Offer Acceptance
+            </h3>
+            <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              You are about to accept the funding offer of <strong className="text-slate-900">${selectedOfferForAccept.amount.toLocaleString()} at {selectedOfferForAccept.interestRate}%</strong> for {selectedOfferForAccept.termMonths} months.
+            </p>
+
+            <div className="my-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Monthly Debt Service:</span>
+                <span className="font-bold text-slate-900">${selectedOfferForAccept.monthlyPayment.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Lender Alias:</span>
+                <span className="font-medium text-slate-800">{selectedOfferForAccept.lenderAlias}</span>
+              </div>
+              <div className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded border border-amber-200 mt-2">
+                *Accepting this offer locks your loan into the Processing & Approval stage. Other active offers will be declined.
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row items-center gap-2 sm:gap-3">
+              <button
+                onClick={() => setSelectedOfferForAccept(null)}
+                className="w-full sm:flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer text-center"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAccept}
+                className="w-full sm:flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-600/20 cursor-pointer text-center"
+              >
+                Confirm & Accept Offer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lender New Offer Modal */}
+      {showNewOfferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-blue-600" />
+                Submit Formal Lender Offer
+              </h3>
+              <button onClick={() => setShowNewOfferModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLenderSubmitOffer} className="space-y-4 pt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Offered Principal Amount ($)</label>
+                <input
+                  type="number"
+                  value={newOfferData.amount}
+                  onChange={(e) => setNewOfferData({ ...newOfferData, amount: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Interest Rate (% APR)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newOfferData.interestRate}
+                    onChange={(e) => setNewOfferData({ ...newOfferData, interestRate: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Term Length (Months)</label>
+                  <select
+                    value={newOfferData.termMonths}
+                    onChange={(e) => setNewOfferData({ ...newOfferData, termMonths: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                  >
+                    <option value={12}>12 Months</option>
+                    <option value={24}>24 Months</option>
+                    <option value={36}>36 Months</option>
+                    <option value={48}>48 Months</option>
+                    <option value={60}>60 Months</option>
+                    <option value={84}>84 Months</option>
+                    <option value={120}>120 Months</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Estimated Monthly Payment ($)</label>
+                  <input
+                    type="number"
+                    value={newOfferData.monthlyPayment}
+                    onChange={(e) => setNewOfferData({ ...newOfferData, monthlyPayment: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Origination Fee (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newOfferData.originationFeePercent}
+                    onChange={(e) => setNewOfferData({ ...newOfferData, originationFeePercent: e.target.value })}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Prepayment Penalty Structure</label>
+                <input
+                  type="text"
+                  value={newOfferData.prepaymentPenalty}
+                  onChange={(e) => setNewOfferData({ ...newOfferData, prepaymentPenalty: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Required Closing Conditions</label>
+                <textarea
+                  rows={2}
+                  value={newOfferData.conditionsText}
+                  onChange={(e) => setNewOfferData({ ...newOfferData, conditionsText: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0070C0] focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewOfferModal(false)}
+                  className="w-full sm:w-auto text-center px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto text-center px-5 py-2 rounded-xl bg-[#0070C0] hover:bg-[#005a9e] text-white text-xs font-bold shadow-md shadow-[#0070C0]/25 cursor-pointer"
+                >
+                  Submit Offer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lender Portfolio Offer Details Modal */}
+      {selectedPortfolioOffer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 my-auto max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-mono font-bold text-slate-400">{selectedPortfolioOffer.id}</span>
+                <StatusBadge status={selectedPortfolioOffer.status} />
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPortfolioOffer(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Commercial Term Sheet Overview</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Underwritten by: <strong className="text-slate-800">{selectedPortfolioOffer.lenderAlias}</strong>
+              </p>
+            </div>
+
+            {/* Financial Highlights */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-blue-50/60 border border-blue-100 text-center">
+              <div>
+                <span className="text-[10px] text-slate-500 block uppercase font-semibold">Principal</span>
+                <span className="text-sm font-extrabold text-slate-900">${selectedPortfolioOffer.amount.toLocaleString()}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 block uppercase font-semibold">Interest Rate</span>
+                <span className="text-sm font-extrabold text-blue-600">{selectedPortfolioOffer.interestRate}%</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 block uppercase font-semibold">Duration</span>
+                <span className="text-sm font-extrabold text-slate-900">{selectedPortfolioOffer.termMonths} Mo</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-500 block uppercase font-semibold">Payment</span>
+                <span className="text-sm font-extrabold text-slate-900">${selectedPortfolioOffer.monthlyPayment.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Detailed Parameters */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                <span className="text-slate-500 shrink-0">Origination Fee:</span>
+                <span className="font-semibold text-slate-900 sm:text-right">
+                  {selectedPortfolioOffer.originationFeePercent || 2}% (${Math.round(selectedPortfolioOffer.amount * (selectedPortfolioOffer.originationFeePercent || 2) / 100).toLocaleString()})
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                <span className="text-slate-500 shrink-0">Estimated Closing Costs:</span>
+                <span className="font-semibold text-slate-900 sm:text-right">$3,500</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                <span className="text-slate-500 shrink-0">Prepayment Policy:</span>
+                <span className="font-semibold text-slate-900 break-words sm:text-right">
+                  {selectedPortfolioOffer.prepaymentPenalty || '3% Year 1, 1% Year 2, Non-callable afterwards'}
+                </span>
+              </div>
+              {selectedPortfolioOffer.requiredConditions?.length > 0 && (
+                <div className="pt-2 border-t border-slate-200">
+                  <span className="font-bold block text-slate-700 mb-1">Closing Conditions & Covenants:</span>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600">
+                    {selectedPortfolioOffer.requiredConditions.map((cond, idx) => (
+                      <li key={idx} className="break-words">{cond}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedPortfolioOffer(null)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-200 font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer text-center text-xs"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownloadTermSheet(selectedPortfolioOffer)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#0070C0] hover:bg-[#005a9e] text-white font-bold shadow-md shadow-[#0070C0]/25 cursor-pointer text-center text-xs flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Term Sheet</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
